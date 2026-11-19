@@ -307,3 +307,55 @@ describe('performance optimizations preserve behaviour', () => {
     assert.equal(h.digest('hex').slice(0, 16), 'b53c05117c2c1770');
   });
 });
+
+describe('visual genes', () => {
+  test('stay in [0, 1], are inherited with small drift, and never touch behaviour', () => {
+    const w = new World({ seed: 9, mutation: 3 });
+    let g = w.randomGenome();
+    for (let i = 0; i < 500; i++) {
+      const child = w.mutate(g);
+      for (let k = 0; k < g.morph.length; k++) {
+        assert.ok(child.morph[k] >= 0 && child.morph[k] <= 1);
+        assert.ok(Math.abs(child.morph[k] - g.morph[k]) < 0.5, 'drift per generation is small');
+      }
+      g = child;
+    }
+  });
+
+  test('looks are derived deterministically from the genome', async () => {
+    const { looks } = await import('../morph.js');
+    const w = new World({ seed: 9 });
+    const g = w.randomGenome(true);
+    assert.deepEqual(looks(g), looks({ ...g }));
+    const L = looks(g);
+    assert.ok(L.segments >= 1 && L.segments <= 4 && L.spikes >= 0 && L.spikes <= 4);
+    assert.ok(['plain', 'spots', 'stripes'].includes(L.pattern));
+  });
+});
+
+describe('documentary director', () => {
+  test('frames a subject or a wide shot, with a caption', async () => {
+    const { Director } = await import('../director.js');
+    const w = new World({ seed: 7 });
+    for (let i = 0; i < 2000; i++) w.step();
+    const d = new Director(w, (c) => `#${c.id}`);
+    d.start();
+    const shot = d.update(0);
+    assert.ok(shot.title && shot.line);
+    assert.ok(shot.subject === null || shot.subject.alive);
+  });
+
+  test('narrates the death of its subject', async () => {
+    const { Director } = await import('../director.js');
+    const w = new World({ seed: 7 });
+    for (let i = 0; i < 2000; i++) w.step();
+    const d = new Director(w, (c) => `#${c.id}`);
+    d.start();
+    let shot = d.update(0);
+    for (let i = 0; i < 50 && !shot.subject; i++) { d.cut(0); shot = d.update(0); }
+    assert.ok(shot.subject, 'found a subject to film');
+    w.kill(shot.subject, 'starved');
+    shot = d.update(1);
+    assert.match(shot.line, /is gone/);
+  });
+});

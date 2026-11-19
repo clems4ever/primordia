@@ -12,6 +12,8 @@ export const NIN = IN_LABELS.length;          // 20
 export const NH = 10;
 export const NOUT = OUT_LABELS.length;        // 4
 export const NW = NIN * NH + NH + NH * NOUT + NOUT;
+// Visual-only genes: they shape how a creature looks, never how it behaves.
+export const MORPH = ['tail', 'fins', 'pattern', 'accent', 'stretch', 'spikes'];
 
 export const DEFAULTS = {
   width: 2000, height: 1250,
@@ -54,6 +56,8 @@ export class World {
     const c = this.cfg;
     this.seed = seed;
     this.rand = mulberry32(seed);
+    // a separate stream for visual genes, so looks can evolve without changing the simulation
+    this.randLook = mulberry32(seed ^ 0x5bd1e995);
     this.t = 0;
     this.nextId = 1;
     this.secX = new Float64Array(NSECT + 1); this.secY = new Float64Array(NSECT + 1);
@@ -123,6 +127,7 @@ export class World {
       hue: predator ? (340 + this.rand() * 40) % 360 : 90 + this.rand() * 140,
       diet: predator ? 0.75 + this.rand() * 0.2 : this.rand() * 0.2,
       range: 90 + this.rand() * 60,
+      morph: Float32Array.from(MORPH, () => this.randLook()),
     };
   }
 
@@ -140,6 +145,10 @@ export class World {
       hue: (g.hue + this.gauss() * 5 * m + 360) % 360,
       diet: clamp(g.diet + this.gauss() * 0.035 * m, 0, 1),
       range: clamp(g.range + this.gauss() * 6 * m, 30, 260),
+      morph: g.morph.map((v) => {
+        const r = this.randLook() + this.randLook() + this.randLook() - 1.5;   // ~N(0, 0.5)
+        return clamp(v + r * 0.06 * m, 0, 1);
+      }),
     };
   }
 
@@ -368,7 +377,7 @@ export class World {
       const kid = this.addCreature(b.g, b.parent.x + Math.cos(ang) * 8, b.parent.y + Math.sin(ang) * 8, b.parent);
       kid.energy = b.energy;
       this.stats.births++;
-      this.fxq.push({ type: 'birth', x: kid.x, y: kid.y, hue: kid.g.hue });
+      this.fxq.push({ type: 'birth', x: kid.x, y: kid.y, hue: kid.g.hue, size: kid.g.size });
       if (this.isPredator(kid) && !this.isPredator(b.parent)) {
         this.log(`A herbivore lineage crossed into predation (gen ${kid.gen}).`, 'evo');
       }

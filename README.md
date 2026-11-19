@@ -6,7 +6,7 @@ An evolving ecosystem of tiny neural minds, in the browser.
 
 ![Primordia: herbivores and predators evolving, with the inspector showing a predator's brain](docs/screenshot.png)
 
-Each creature has a small neural network for a brain and a few genes: body size, diet, vision range and colour. It sees food, prey and threats, and it can turn and thrust. That's all. Grazing, fleeing, hunting and the predator–prey arms race all come from mutation and selection. None of it is programmed in.
+Each creature has a small neural network for a brain and a few genes: body size, diet, vision range and colour, plus visual genes for tails, fins and markings, so lineages look different as they evolve. It sees food, prey and threats, and it can turn and thrust. That's all. Grazing, fleeing, hunting and the predator–prey arms race all come from mutation and selection. None of it is programmed in.
 
 ## Run it
 
@@ -23,6 +23,7 @@ Add `?seed=7` for a reproducible world, or `?seed=7&warm=6000` to start from an 
 
 - **Click a creature** to see its genes and a live view of its brain.
 - **1–4** switch tools: inspect, feed, release a predator, drop a meteor.
+- **D** starts documentary mode: the camera follows the drama and narrates it. **M** turns on generative sound.
 - **Scroll** to zoom, **drag** to pan, **Space** to pause, **N** for a new world, **H** to hide the interface, **P** for a performance overlay.
 - Sliders control speed, food and mutation. **Spontaneous generation** (off by default) re-seeds the world when life nearly vanishes.
 

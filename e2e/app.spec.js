@@ -72,3 +72,21 @@ test('P toggles the performance overlay', async ({ page }) => {
   await page.keyboard.press('p');
   await expect(page.locator('#perf')).toBeHidden();
 });
+
+test('documentary mode frames a subject with a caption, and Esc leaves it', async ({ page }) => {
+  await page.goto('/?seed=7&warm=2000');
+  await page.keyboard.press('d');
+  await expect(page.locator('body')).toHaveClass(/cinema/);
+  await expect(page.locator('#caption')).toHaveClass(/show/, { timeout: 5000 });
+  await expect(page.locator('#caption .ct')).not.toBeEmpty();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('body')).not.toHaveClass(/cinema/);
+});
+
+test('the sound button switches sound on and off', async ({ page }) => {
+  await page.goto('/?seed=7');
+  await page.click('#b-sound');
+  await expect(page.locator('#b-sound')).toHaveAttribute('aria-pressed', 'true');
+  await page.click('#b-sound');
+  await expect(page.locator('#b-sound')).toHaveAttribute('aria-pressed', 'false');
+});

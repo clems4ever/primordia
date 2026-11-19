@@ -1,5 +1,8 @@
 // Primordia — rendering and interaction.
 import { World, IN_LABELS, OUT_LABELS, NIN, NH, NOUT, NSECT } from './sim.js';
+import { drawCreature } from './morph.js';
+import { Sound } from './audio.js';
+import { Director } from './director.js';
 
 const $ = (id) => document.getElementById(id);
 const TAU = Math.PI * 2;
@@ -17,12 +20,28 @@ const cv = $('world');
 const ctx = cv.getContext('2d');
 let dpr = 1, vw = 0, vh = 0;
 const cam = { x: 0, y: 0, z: 1 };
-let wipe = true;                      // full clear next frame (camera moved)
+let wipe = true;                      // full clear next frame (new world, resize, big jump)
+const lastCam = { x: 0, y: 0, z: 0 };
+const trailBuf = document.createElement('canvas');
+
+// Keep motion trails when the camera moves: shift and scale the previous frame so it
+// lines up with the new camera, instead of clearing it.
+function reprojectTrails() {
+  if (!lastCam.z || wipe) return;
+  const k = cam.z / lastCam.z, offx = (lastCam.x - cam.x) * cam.z, offy = (lastCam.y - cam.y) * cam.z;
+  if (k === 1 && offx === 0 && offy === 0) return;
+  if (k > 3 || k < 1 / 3 || Math.abs(offx) > vw / 2 || Math.abs(offy) > vh / 2) { wipe = true; return; }
+  const b = trailBuf.getContext('2d');
+  b.setTransform(1, 0, 0, 1, 0, 0); b.globalCompositeOperation = 'copy'; b.drawImage(cv, 0, 0);
+  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalCompositeOperation = 'copy';
+  ctx.drawImage(trailBuf, offx * dpr, offy * dpr, cv.width * k, cv.height * k);
+}
 
 function resize() {
   dpr = Math.min(window.devicePixelRatio || 1, 2);
   vw = innerWidth; vh = innerHeight;
   cv.width = vw * dpr; cv.height = vh * dpr;
+  trailBuf.width = cv.width; trailBuf.height = cv.height;
   fitCamera();
   for (const ch of charts) ch.resize();
   sizeBrain();
@@ -36,8 +55,17 @@ function fitCamera() {
   wipe = true;
 }
 
-const toScreen = (x, y) => [(x - cam.x) * cam.z, (y - cam.y) * cam.z];
-const toWorld = (sx, sy) => [sx / cam.z + cam.x, sy / cam.z + cam.y];
+// The world wraps around, so every object is drawn at its copy nearest the camera centre.
+// The camera itself may drift outside [0, W) × [0, H); that is fine.
+function nearest(v, centre, L) { const d = v - centre; return d > L / 2 ? v - L : d < -L / 2 ? v + L : v; }
+const camCentre = () => [cam.x + vw / 2 / cam.z, cam.y + vh / 2 / cam.z];
+function toScreen(x, y) {
+  const [cx, cy] = camCentre();
+  return [(nearest(x, cx, world.cfg.width) - cam.x) * cam.z, (nearest(y, cy, world.cfg.height) - cam.y) * cam.z];
+}
+const toWorldRaw = (sx, sy) => [sx / cam.z + cam.x, sy / cam.z + cam.y];
+const mod = (v, L) => ((v % L) + L) % L;
+const toWorld = (sx, sy) => { const [x, y] = toWorldRaw(sx, sy); return [mod(x, world.cfg.width), mod(y, world.cfg.height)]; };
 
 // ------------------------------------------------------------------ sprites
 
@@ -60,8 +88,16 @@ const whiteGlow = glowSprite(40, 100, 92, 64);
 // ------------------------------------------------------------------ effects
 
 const effects = [];
+const sound = new Sound();
+const panOf = (x) => Math.max(-1, Math.min(1, ((x - cam.x) * cam.z / vw) * 2 - 1));
+
 function pullEffects() {
   for (const e of world.fxq) {
+    if (sound.on) {
+      if (e.type === 'birth') sound.birth(e.hue, e.size, panOf(e.x));
+      else if (e.type === 'kill') sound.hunt(panOf(e.x));
+      else if (e.type === 'meteor') sound.meteor(panOf(e.x));
+    }
     if (e.type === 'kill') {
       effects.push({ ...e, life: 26, max: 26 });
       for (let i = 0; i < 9; i++) {
@@ -81,19 +117,23 @@ const isPred = (c) => c.g.diet > 0.5;
 let selected = null, following = false, family = new Set(), familyFor = null;
 
 function draw() {
-  const z = cam.z;
+  const z = cam.z, now = performance.now();
+  reprojectTrails();
+  lastCam.x = cam.x; lastCam.y = cam.y; lastCam.z = cam.z;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.globalCompositeOperation = 'source-over';
   if (wipe) { ctx.fillStyle = '#05080f'; ctx.fillRect(0, 0, vw, vh); wipe = false; }
   else { ctx.fillStyle = 'rgba(5,8,15,0.32)'; ctx.fillRect(0, 0, vw, vh); }   // motion trails
 
   const { width: W, height: H } = world.cfg;
-  const [ox, oy] = toScreen(0, 0);
+  const [ccx, ccy] = camCentre();
 
-  // world plate
-  ctx.strokeStyle = 'rgba(255,255,255,0.05)';
-  ctx.lineWidth = 1;
-  ctx.strokeRect(ox, oy, W * z, H * z);
+  // world plate, when the whole world fits on screen
+  if (W * z <= vw && H * z <= vh) {
+    ctx.strokeStyle = 'rgba(255,255,255,0.05)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect((nearest(W / 2, ccx, W) - W / 2 - cam.x) * z, (nearest(H / 2, ccy, H) - H / 2 - cam.y) * z, W * z, H * z);
+  }
 
   ctx.globalCompositeOperation = 'lighter';
 
@@ -109,7 +149,7 @@ function draw() {
   const fs = Math.max(3.6 * z, 1.8);
   const { fx, fy } = world;
   for (let i = 0; i < fx.length; i++) {
-    ctx.drawImage(foodGlow, (fx[i] - cam.x) * z - fs, (fy[i] - cam.y) * z - fs, fs * 2, fs * 2);
+    ctx.drawImage(foodGlow, (nearest(fx[i], ccx, W) - cam.x) * z - fs, (nearest(fy[i], ccy, H) - cam.y) * z - fs, fs * 2, fs * 2);
   }
 
   // creature glows
@@ -162,7 +202,7 @@ function draw() {
     if (sx < -30 || sy < -30 || sx > vw + 30 || sy > vh + 30) continue;
     const dim = family.size && c !== selected && !family.has(c.id);
     ctx.globalAlpha = dim ? 0.18 : 1;
-    drawBody(ctx, c, sx, sy, Math.max(c.g.size * z, 2.2));
+    drawCreature(ctx, c, sx, sy, Math.max(c.g.size * z, 2.2), now);
     if (family.has(c.id)) {
       ctx.strokeStyle = `hsla(${c.g.hue},90%,80%,0.8)`; ctx.lineWidth = 1;
       ctx.beginPath(); ctx.arc(sx, sy, Math.max(c.g.size * z, 2) + 4, 0, TAU); ctx.stroke();
@@ -187,40 +227,6 @@ function draw() {
     ctx.beginPath(); ctx.arc(pointer.x, pointer.y, r, 0, TAU); ctx.stroke();
     ctx.setLineDash([]);
   }
-}
-
-function drawBody(g, c, sx, sy, r) {
-  const h = c.g.hue, a = c.ang;
-  g.save();
-  g.translate(sx, sy); g.rotate(a);
-  // wake: a short tail proportional to speed
-  g.strokeStyle = `hsla(${h},70%,65%,0.45)`;
-  g.lineWidth = Math.max(r * 0.35, 1);
-  g.lineCap = 'round';
-  g.beginPath(); g.moveTo(-r * 0.9, 0); g.lineTo(-r * (1.2 + c.speed * 1.3), 0); g.stroke();
-
-  if (isPred(c)) {
-    // hunter: an arrowhead with swept fins
-    g.fillStyle = `hsl(${h},72%,58%)`;
-    g.beginPath();
-    g.moveTo(r * 1.6, 0);
-    g.quadraticCurveTo(r * 0.2, r * 0.55, -r * 1.05, r * 1.05);
-    g.lineTo(-r * 0.55, 0);
-    g.lineTo(-r * 1.05, -r * 1.05);
-    g.quadraticCurveTo(r * 0.2, -r * 0.55, r * 1.6, 0);
-    g.fill();
-    g.fillStyle = 'rgba(255,240,230,0.95)';
-    g.beginPath(); g.arc(r * 0.55, 0, Math.max(r * 0.2, 0.8), 0, TAU); g.fill();
-  } else {
-    // grazer: a soft cell with a nucleus and a forward eye
-    g.fillStyle = `hsl(${h},62%,60%)`;
-    g.beginPath(); g.ellipse(0, 0, r * 1.15, r * 0.95, 0, 0, TAU); g.fill();
-    g.fillStyle = `hsla(${h},70%,85%,0.55)`;
-    g.beginPath(); g.arc(-r * 0.2, 0, r * 0.45, 0, TAU); g.fill();
-    g.fillStyle = 'rgba(255,255,255,0.95)';
-    g.beginPath(); g.arc(r * 0.7, 0, Math.max(r * 0.22, 0.7), 0, TAU); g.fill();
-  }
-  g.restore();
 }
 
 function drawSenses(c) {
@@ -412,7 +418,7 @@ function drawAvatar(c) {
   g.globalAlpha = 0.8;
   g.drawImage(hueGlow[Math.floor(c.g.hue / 10) % 36], 0, 0, 56, 56);
   g.globalCompositeOperation = 'source-over'; g.globalAlpha = 1;
-  drawBody(g, { ...c, ang: -Math.PI / 4, speed: 0.6 }, 28, 28, 9);
+  drawCreature(g, { ...c, ang: -Math.PI / 4, speed: 0.6 }, 30, 30, 8.5, performance.now());
 }
 
 function updateInspector() {
@@ -424,6 +430,7 @@ function updateInspector() {
   const pred = isPred(c);
   $('i-tag').innerHTML = `${pred ? 'Predator' : 'Herbivore'} · generation ${c.gen}` +
     (c.alive ? '' : ' · <span style="color:#f0b429">deceased</span>');
+  drawAvatar(c);
   $('i-energy').style.width = `${Math.max(0, c.energy / world.cap(c.g)) * 100}%`;
   const genes = [
     ['size', c.g.size.toFixed(1)], ['diet', pred ? `${Math.round(c.g.diet * 100)}% meat` : `${Math.round((1 - c.g.diet) * 100)}% plant`],
@@ -493,7 +500,7 @@ cv.addEventListener('pointermove', (e) => {
   pointer.lx = e.clientX; pointer.ly = e.clientY;
   if (pointer.panning && pointer.moved > 4) {
     document.body.classList.add('panning');
-    cam.x -= dx / cam.z; cam.y -= dy / cam.z; following = false; wipe = true;
+    cam.x -= dx / cam.z; cam.y -= dy / cam.z; following = false;
   } else if (tool === 'feed' && Math.random() < 0.5) {
     const [wx, wy] = toWorld(e.clientX, e.clientY); world.feed(wx, wy, 50, 10);
   }
@@ -510,10 +517,9 @@ cv.addEventListener('pointerleave', () => { pointer.inside = false; });
 cv.addEventListener('contextmenu', (e) => e.preventDefault());
 cv.addEventListener('wheel', (e) => {
   e.preventDefault();
-  const [wx, wy] = toWorld(e.clientX, e.clientY);
+  const [wx, wy] = toWorldRaw(e.clientX, e.clientY);
   cam.z = clampN(cam.z * Math.exp(-e.deltaY * 0.0015), 0.25, 8);
   cam.x = wx - e.clientX / cam.z; cam.y = wy - e.clientY / cam.z;
-  wipe = true;
 }, { passive: false });
 
 let paused = false, speedIdx = 1, perfOn = params.has('perf');
@@ -523,6 +529,7 @@ function newWorld() {
   world.reset((Math.random() * 1e9) | 0);
   select(null); effects.length = 0; lastEventCount = 0; $('ticker').innerHTML = ''; wipe = true;
   $('seed').textContent = world.seed;
+  if (doc.on) director.start();
 }
 $('b-pause').addEventListener('click', togglePause);
 $('b-new').addEventListener('click', newWorld);
@@ -561,9 +568,11 @@ addEventListener('keydown', (e) => {
   else if (k >= '1' && k <= '4') setTool(['inspect', 'feed', 'predator', 'meteor'][+k - 1]);
   else if (k === 'f' && selected) $('i-follow').click();
   else if (k === 'n') newWorld();
-  else if (k === 'escape') select(null);
+  else if (k === 'escape') { if (doc.on) toggleDoc(); else select(null); }
   else if (k === 'h') { document.body.classList.toggle('hide-ui'); }
   else if (k === 'p') togglePerf();
+  else if (k === 'd') toggleDoc();
+  else if (k === 'm') toggleSound();
 });
 addEventListener('resize', resize);
 setTimeout(() => $('hint').classList.add('gone'), 9000);
@@ -571,6 +580,64 @@ setTimeout(() => $('hint').classList.add('gone'), 9000);
 // ------------------------------------------------------------------ loop
 
 let frame = 0;
+// ------------------------------------------------------------------ documentary & sound
+
+const director = new Director(world, (c) => nameOf(c));
+const doc = { on: false, speedIdx: 1, shownAt: 0 };
+
+function setSpeed(i) { const r = $('r-speed'); r.value = i; r.dispatchEvent(new Event('input')); }
+
+function toggleDoc() {
+  doc.on = !doc.on;
+  document.body.classList.toggle('cinema', doc.on);
+  $('b-doc').setAttribute('aria-pressed', doc.on);
+  if (doc.on) {
+    doc.speedIdx = speedIdx; setSpeed(0);
+    select(null); following = false;
+    if (paused) togglePause();
+    director.start();
+  } else {
+    director.stop(); setSpeed(doc.speedIdx);
+    $('caption').classList.remove('show');
+    fitCamera();
+  }
+}
+
+function showCaption(shot) {
+  const cap = $('caption'), ct = cap.querySelector('.ct'), cl = cap.querySelector('.cl');
+  if (ct.textContent !== shot.title) {
+    cap.classList.remove('show');
+    setTimeout(() => { ct.textContent = shot.title; cl.textContent = shot.line; if (doc.on) cap.classList.add('show'); }, 450);
+  } else {
+    cl.classList.add('swap');
+    setTimeout(() => { cl.textContent = shot.line; cl.classList.remove('swap'); }, 300);
+  }
+}
+
+// Ease the camera towards the director's framing.
+function directCamera(shot) {
+  const { width: W, height: H } = world.cfg;
+  const fit = Math.min(vw / W, vh / H);
+  const c = shot.subject;
+  const tz = shot.zoom === 'close' ? Math.min(fit * 3.4, 4) : fit * 0.98;
+  let [cx, cy] = camCentre();
+  const tx = nearest(c ? c.x : W / 2, cx, W), ty = nearest(c ? c.y : H / 2, cy, H);
+  cam.z += (tz - cam.z) * 0.025;
+  cx += (tx - cx) * 0.07; cy += (ty - cy) * 0.07;
+  cam.x = cx - vw / 2 / cam.z; cam.y = cy - vh / 2 / cam.z;
+}
+
+async function toggleSound() {
+  const on = await sound.toggle();
+  $('b-sound').setAttribute('aria-pressed', on);
+  $('b-sound').innerHTML = `${on ? '♪ Sound on' : '♪ Sound'} <kbd>M</kbd>`;
+}
+
+$('b-doc').addEventListener('click', toggleDoc);
+$('b-sound').addEventListener('click', toggleSound);
+cv.addEventListener('pointerdown', () => { if (doc.on) toggleDoc(); }, true);
+cv.addEventListener('wheel', () => { if (doc.on) toggleDoc(); }, { capture: true, passive: true });
+
 // Frame timings, smoothed. Shown by the performance overlay (P) and read by benchmarks.
 const perf = { fps: 0, sim: 0, draw: 0, ui: 0, ticksPerSec: 0, last: performance.now() };
 const ema = (a, b) => a * 0.95 + b * 0.05;
@@ -582,10 +649,25 @@ function loop() {
   const t1 = performance.now();
   pullEffects();
   if (selected && !selected.alive && following) following = false;
+  if (doc.on) {
+    const shot = director.update(performance.now());
+    if (shot) {
+      if (shot.changed) { shot.changed = false; showCaption(shot); }
+      directCamera(shot);
+      // spotlight on the subject
+      const spot = $('spot'), c = shot.subject;
+      spot.classList.toggle('on', !!c && c.alive);
+      if (c && c.alive) {
+        const [sx, sy] = toScreen(c.x, c.y), r = Math.max(c.g.size * cam.z * 5, 70);
+        spot.style.background = `radial-gradient(circle at ${sx.toFixed(0)}px ${sy.toFixed(0)}px, transparent ${r.toFixed(0)}px, rgba(0,0,0,0.5) ${(r * 4.5).toFixed(0)}px)`;
+      }
+    }
+  }
   if (following && selected) {
-    const tx = selected.x - (vw - 350) / 2 / cam.z, ty = selected.y - vh / 2 / cam.z;
-    if (Math.abs(tx - cam.x) > world.cfg.width / 2 || Math.abs(ty - cam.y) > world.cfg.height / 2) { cam.x = tx; cam.y = ty; }
-    cam.x += (tx - cam.x) * 0.12; cam.y += (ty - cam.y) * 0.12; wipe = true;
+    const [cx, cy] = camCentre();
+    const tx = nearest(selected.x, cx, world.cfg.width) - (vw - 350) / 2 / cam.z;
+    const ty = nearest(selected.y, cy, world.cfg.height) - vh / 2 / cam.z;
+    cam.x += (tx - cam.x) * 0.12; cam.y += (ty - cam.y) * 0.12;
   }
   draw();
   const t2 = performance.now();
@@ -599,6 +681,7 @@ function loop() {
     $('clock').textContent = `day ${dayOf(world.t)}`;
     for (const ch of charts) ch.draw(world.history);
     updateTicker();
+    if (frame % 30 === 0) sound.ambience(h.herb ?? 0, h.pred ?? 0);
   }
   if (selected && frame % 2 === 0) updateInspector();
   const t3 = performance.now(), dt = t0 - perf.last;

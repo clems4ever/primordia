@@ -68,6 +68,10 @@
       <button data-tool="meteor" title="Strike with a meteor (4)"><span>✸</span>Meteor</button>
     </div>
     <div class="row">
+      <button id="b-doc" class="ghost" aria-pressed="false">▶ Documentary <kbd>D</kbd></button>
+      <button id="b-sound" class="ghost" aria-pressed="false">♪ Sound <kbd>M</kbd></button>
+    </div>
+    <div class="row">
       <button id="b-pause" class="ghost">Pause <kbd>space</kbd></button>
       <button id="b-new" class="ghost">New world <kbd>N</kbd></button>
     </div>
@@ -94,6 +98,9 @@
 </div>
 
 <div id="perf" hidden></div>
+<div id="spot" aria-hidden="true"></div>
+<div id="bars" aria-hidden="true"><div></div><div></div></div>
+<div id="caption" aria-live="polite"><div class="ct"></div><div class="cl"></div><div class="cx">press D or Esc to leave</div></div>
 <div id="ticker"></div>
 <div id="hint">Click a creature to read its mind · scroll to zoom · drag to pan · <kbd>H</kbd> hides the interface</div>
 
