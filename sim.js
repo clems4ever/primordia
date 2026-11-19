@@ -56,6 +56,8 @@ export class World {
     this.rand = mulberry32(seed);
     this.t = 0;
     this.nextId = 1;
+    this.secX = new Float64Array(NSECT + 1); this.secY = new Float64Array(NSECT + 1);
+    this.vCell = new Int32Array(512); this.vOx = new Float64Array(512); this.vOy = new Float64Array(512);
     this.creatures = [];
     this.parentOf = new Map();                         // id -> parent id, for family trees
     this.fx = []; this.fy = []; this.fe = [];          // food pellets (struct of arrays)
@@ -158,6 +160,7 @@ export class World {
       alive: true,
       flash: 0,
     };
+    c.pow = this.power(c);
     this.creatures.push(c);
     if (parent) this.parentOf.set(c.id, parent.id);
     if (c.gen > this.stats.maxGen) this.stats.maxGen = c.gen;
@@ -167,7 +170,7 @@ export class World {
   cap(g) { return 100 * (g.size / 5) ** 2; }
   power(c) { return c.g.size * (0.4 + c.g.diet); }
   isPredator(c) { return c.g.diet > 0.5; }
-  canEat(a, b) { return a.g.diet > 0.5 && this.power(a) > this.power(b) * 1.15; }
+  canEat(a, b) { return a.g.diet > 0.5 && a.pow > b.pow * 1.15; }
 
   // ------------------------------------------------------------------ spatial hashing
 
@@ -200,32 +203,74 @@ export class World {
     }
   }
 
+  // Grid cells that may hold something c can see: within its vision radius and not wholly
+  // behind either edge of its vision cone. The grid is built at the start of the tick and
+  // creatures move during it (at most ~3.3 units), so the test keeps a 4-unit margin and
+  // never drops an object that sense() would have counted. Needs secX/secY set for c.
+  visibleCells(c) {
+    const { width: W, height: H } = this.cfg;
+    const M = 4, R = c.g.range, lim = (R + M) * (R + M);
+    const bx = this.secX, by = this.secY, n = NSECT;
+    const cx = (c.x / CELL) | 0, cy = (c.y / CELL) | 0, k = Math.ceil(R / CELL);
+    let m = 0;
+    for (let dy = -k; dy <= k; dy++) {
+      const gy = (cy + dy + this.gh) % this.gh;
+      const oy = cy + dy < 0 ? -H : cy + dy >= this.gh ? H : 0;
+      const y0 = gy * CELL + oy - c.y, y1 = Math.min((gy + 1) * CELL, H) + oy - c.y;
+      const ny = y0 > 0 ? y0 : y1 < 0 ? -y1 : 0;
+      for (let dx = -k; dx <= k; dx++) {
+        const gx = (cx + dx + this.gw) % this.gw;
+        const ox = cx + dx < 0 ? -W : cx + dx >= this.gw ? W : 0;
+        const x0 = gx * CELL + ox - c.x, x1 = Math.min((gx + 1) * CELL, W) + ox - c.x;
+        const nx = x0 > 0 ? x0 : x1 < 0 ? -x1 : 0;
+        if (nx * nx + ny * ny > lim) continue;
+        let right = 0, left = 0;   // corners strictly outside the first / last cone edge
+        for (let q = 0; q < 4; q++) {
+          const X = q & 1 ? x1 : x0, Y = q & 2 ? y1 : y0;
+          if (bx[0] * Y - by[0] * X < -M) right++;
+          if (bx[n] * Y - by[n] * X > M) left++;
+        }
+        if (right === 4 || left === 4) continue;
+        this.vCell[m] = gy * this.gw + gx; this.vOx[m] = ox; this.vOy[m] = oy; m++;
+      }
+    }
+    return m;
+  }
+
   // ------------------------------------------------------------------ step
 
   sense(c) {
-    const inp = c.inp, fov = this.cfg.fov, R = c.g.range;
+    const inp = c.inp, fov = this.cfg.fov, R = c.g.range, R2 = R * R;
     inp.fill(0);
+    // Sector boundary directions in world space. A point is at or past boundary k
+    // when cross(b_k, d) >= 0; this avoids an atan2 per object (the cone is < 180°).
+    const bx = this.secX, by = this.secY;
+    for (let k = 0; k <= NSECT; k++) {
+      const a = c.ang - fov / 2 + (k * fov) / NSECT;
+      bx[k] = Math.cos(a); by[k] = Math.sin(a);
+    }
     const put = (dx, dy, ch) => {
       const d2 = dx * dx + dy * dy;
-      if (d2 > R * R || d2 < 1e-6) return;
-      const a = wrapAngle(Math.atan2(dy, dx) - c.ang);
-      if (a < -fov / 2 || a >= fov / 2) return;
-      const s = ((a + fov / 2) / fov * NSECT) | 0;
+      if (d2 > R2 || d2 < 1e-6) return;
+      if (bx[0] * dy - by[0] * dx < 0 || bx[NSECT] * dy - by[NSECT] * dx >= 0) return;
+      let s = 0;
+      while (s < NSECT - 1 && bx[s + 1] * dy - by[s + 1] * dx >= 0) s++;
       const v = 1 - Math.sqrt(d2) / R;
       const k = ch * NSECT + s;
       if (v > inp[k]) inp[k] = v;
     };
-    this.forCells(c.x, c.y, R, this.foodGrid, (cell, ox, oy) => {
-      for (const i of cell) put(this.fx[i] + ox - c.x, this.fy[i] + oy - c.y, 0);
-    });
-    this.forCells(c.x, c.y, R, this.critGrid, (cell, ox, oy) => {
-      for (const o of cell) {
+    const m = this.visibleCells(c), fx = this.fx, fy = this.fy;
+    for (let j = 0; j < m; j++) {
+      // same operation order as before ((p + offset) - c), so results are bit-identical
+      const cell = this.vCell[j], ox = this.vOx[j], oy = this.vOy[j];
+      for (const i of this.foodGrid[cell]) put(fx[i] + ox - c.x, fy[i] + oy - c.y, 0);
+      for (const o of this.critGrid[cell]) {
         if (o === c || !o.alive) continue;
         const dx = o.x + ox - c.x, dy = o.y + oy - c.y;
         if (this.canEat(c, o)) put(dx, dy, 1);
         else if (this.canEat(o, c)) put(dx, dy, 2);
       }
-    });
+    }
     inp[15] = c.energy / this.cap(c.g);
     inp[16] = Math.sin(this.t * 0.02);
     inp[17] = c.mem[0]; inp[18] = c.mem[1];

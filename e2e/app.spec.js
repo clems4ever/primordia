@@ -62,3 +62,13 @@ test('a meteor strike is reported in the ticker', async ({ page }) => {
   await page.mouse.click(500, 450);
   await expect(page.locator('#ticker')).toContainText('A meteor struck');
 });
+
+test('P toggles the performance overlay', async ({ page }) => {
+  await page.goto('/?seed=7');
+  await expect(page.locator('#perf')).toBeHidden();
+  await page.keyboard.press('p');
+  await expect(page.locator('#perf')).toBeVisible();
+  await expect(page.locator('#perf')).toContainText(/fps .* ticks\/s/);
+  await page.keyboard.press('p');
+  await expect(page.locator('#perf')).toBeHidden();
+});

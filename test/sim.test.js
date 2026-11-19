@@ -256,3 +256,54 @@ describe('long run', () => {
     assert.ok(w.stats.maxGen > 0, 'evolution happened');
   });
 });
+
+describe('performance optimizations preserve behaviour', () => {
+  // Reference sensing: the original algorithm, scanning every object with atan2.
+  function referenceSense(w, c) {
+    const { width: W, height: H, fov } = w.cfg, R = c.g.range, inp = new Float64Array(3 * NSECT);
+    const near = (d, L) => (d > L / 2 ? d - L : d < -L / 2 ? d + L : d);
+    const put = (dx, dy, ch) => {
+      const d2 = dx * dx + dy * dy;
+      if (d2 > R * R || d2 < 1e-6) return;
+      let a = Math.atan2(dy, dx) - c.ang;
+      while (a > Math.PI) a -= 2 * Math.PI; while (a < -Math.PI) a += 2 * Math.PI;
+      if (a < -fov / 2 || a >= fov / 2) return;
+      const k = ch * NSECT + (((a + fov / 2) / fov * NSECT) | 0);
+      inp[k] = Math.max(inp[k], 1 - Math.sqrt(d2) / R);
+    };
+    for (let i = 0; i < w.fx.length; i++) put(near(w.fx[i] - c.x, W), near(w.fy[i] - c.y, H), 0);
+    for (const o of w.creatures) {
+      if (o === c) continue;
+      const dx = near(o.x - c.x, W), dy = near(o.y - c.y, H);
+      if (w.canEat(c, o)) put(dx, dy, 1); else if (w.canEat(o, c)) put(dx, dy, 2);
+    }
+    return inp;
+  }
+
+  test('grid-culled sensing matches a brute-force scan of every object', () => {
+    const w = new World({ seed: 11, initialPop: 300, initialPredators: 60 });
+    w.buildGrids();
+    for (const c of w.creatures) {
+      w.sense(c);
+      const ref = referenceSense(w, c);
+      for (let k = 0; k < 3 * NSECT; k++) {
+        // inputs are stored as float32, so compare at float32 precision
+        assert.ok(Math.abs(c.inp[k] - ref[k]) < 1e-6, `creature ${c.id} input ${k}: ${c.inp[k]} vs ${ref[k]}`);
+      }
+    }
+  });
+
+  test('a fixed seed reproduces a known state (update only for intentional rule changes)', async () => {
+    const { createHash } = await import('node:crypto');
+    const w = new World({ seed: 7 });
+    for (let i = 0; i < 1500; i++) w.step();
+    const h = createHash('sha256');
+    for (const c of w.creatures) {
+      h.update(Buffer.from(new Float64Array([c.id, c.x, c.y, c.ang, c.speed, c.energy, c.age, c.g.size]).buffer));
+    }
+    h.update(Buffer.from(new Float64Array(w.fx).buffer));
+    h.update(Buffer.from(new Float64Array(w.fy).buffer));
+    h.update(`${w.t}|${w.stats.births}|${w.stats.kills}|${w.stats.deaths}`);
+    assert.equal(h.digest('hex').slice(0, 16), 'b53c05117c2c1770');
+  });
+});

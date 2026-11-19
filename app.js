@@ -516,7 +516,8 @@ cv.addEventListener('wheel', (e) => {
   wipe = true;
 }, { passive: false });
 
-let paused = false, speedIdx = 1;
+let paused = false, speedIdx = 1, perfOn = params.has('perf');
+function togglePerf() { perfOn = !perfOn; $('perf').hidden = !perfOn; }
 function togglePause() { paused = !paused; $('b-pause').innerHTML = `${paused ? 'Resume' : 'Pause'} <kbd>space</kbd>`; }
 function newWorld() {
   world.reset((Math.random() * 1e9) | 0);
@@ -562,6 +563,7 @@ addEventListener('keydown', (e) => {
   else if (k === 'n') newWorld();
   else if (k === 'escape') select(null);
   else if (k === 'h') { document.body.classList.toggle('hide-ui'); }
+  else if (k === 'p') togglePerf();
 });
 addEventListener('resize', resize);
 setTimeout(() => $('hint').classList.add('gone'), 9000);
@@ -569,8 +571,15 @@ setTimeout(() => $('hint').classList.add('gone'), 9000);
 // ------------------------------------------------------------------ loop
 
 let frame = 0;
+// Frame timings, smoothed. Shown by the performance overlay (P) and read by benchmarks.
+const perf = { fps: 0, sim: 0, draw: 0, ui: 0, ticksPerSec: 0, last: performance.now() };
+const ema = (a, b) => a * 0.95 + b * 0.05;
+
 function loop() {
-  if (!paused) for (let i = 0; i < SPEEDS[speedIdx]; i++) world.step();
+  const t0 = performance.now();
+  const steps = paused ? 0 : SPEEDS[speedIdx];
+  for (let i = 0; i < steps; i++) world.step();
+  const t1 = performance.now();
   pullEffects();
   if (selected && !selected.alive && following) following = false;
   if (following && selected) {
@@ -579,6 +588,7 @@ function loop() {
     cam.x += (tx - cam.x) * 0.12; cam.y += (ty - cam.y) * 0.12; wipe = true;
   }
   draw();
+  const t2 = performance.now();
   if (frame % 6 === 0) {
     const h = world.history.at(-1) || { herb: 0, pred: 0 };
     $('s-pop').textContent = world.creatures.length;
@@ -591,13 +601,22 @@ function loop() {
     updateTicker();
   }
   if (selected && frame % 2 === 0) updateInspector();
+  const t3 = performance.now(), dt = t0 - perf.last;
+  perf.last = t0;
+  if (dt > 0) { perf.fps = ema(perf.fps, 1000 / dt); perf.ticksPerSec = ema(perf.ticksPerSec, (steps * 1000) / dt); }
+  perf.sim = ema(perf.sim, t1 - t0); perf.draw = ema(perf.draw, t2 - t1); perf.ui = ema(perf.ui, t3 - t2);
+  if (perfOn && frame % 10 === 0) {
+    $('perf').textContent = `${perf.fps.toFixed(0)} fps · ${Math.round(perf.ticksPerSec)} ticks/s\n` +
+      `sim ${perf.sim.toFixed(1)} ms · draw ${perf.draw.toFixed(1)} ms · ui ${perf.ui.toFixed(1)} ms`;
+  }
   frame++;
   requestAnimationFrame(loop);
 }
 
 $('seed').textContent = world.seed;
+$('perf').hidden = !perfOn;
 setTool('inspect');
 resize();
 if (params.has('warm')) { for (let i = 0; i < +params.get('warm'); i++) world.step(); world.fxq.length = 0; }
-window.primordia = { world, cam, select: (c) => select(c), toScreen };
+window.primordia = { world, cam, select: (c) => select(c), toScreen, perf };
 requestAnimationFrame(loop);

@@ -23,7 +23,7 @@ Add `?seed=7` for a reproducible world, or `?seed=7&warm=6000` to start from an 
 
 - **Click a creature** to see its genes and a live view of its brain.
 - **1–4** switch tools: inspect, feed, release a predator, drop a meteor.
-- **Scroll** to zoom, **drag** to pan, **Space** to pause, **N** for a new world, **H** to hide the interface.
+- **Scroll** to zoom, **drag** to pan, **Space** to pause, **N** for a new world, **H** to hide the interface, **P** for a performance overlay.
 - Sliders control speed, food and mutation. **Spontaneous generation** (off by default) re-seeds the world when life nearly vanishes.
 
 ## Develop
@@ -32,6 +32,7 @@ Add `?seed=7` for a reproducible world, or `?seed=7&warm=6000` to start from an 
 npm test            # simulation unit tests (Node 22, no install needed)
 npm ci && npx playwright install chromium
 npm run test:e2e    # browser tests
+npm run bench       # A/B benchmark of sim.js against main
 ```
 
 `sim.js` is the simulation and has no DOM, so it runs in Node too. `app.js` handles rendering and the interface.
