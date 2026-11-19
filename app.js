@@ -47,11 +47,21 @@ function resize() {
   sizeBrain();
 }
 
+const narrow = matchMedia('(max-width: 760px)');
+const panelW = () => (document.body.classList.contains('hide-ui') || narrow.matches ? 0 : 350);
+
 function fitCamera() {
   const { width: W, height: H } = world.cfg;
-  const panelW = document.body.classList.contains('hide-ui') ? 0 : 350;
-  const z = Math.min((vw - panelW - 40) / W, (vh - 40) / H);
-  cam.z = z; cam.x = W / 2 - ((vw - panelW) / 2) / z; cam.y = H / 2 - (vh / 2) / z;
+  if (narrow.matches) {
+    // phones: fill the screen and let people pan around the (wrapping) world
+    cam.z = Math.max(vw / W, vh / H);
+    cam.x = W / 2 - vw / 2 / cam.z; cam.y = H / 2 - vh / 2 / cam.z;
+    wipe = true;
+    return;
+  }
+  const pw = panelW();
+  const z = Math.min((vw - pw - 40) / W, (vh - 40) / H);
+  cam.z = z; cam.x = W / 2 - ((vw - pw) / 2) / z; cam.y = H / 2 - (vh / 2) / z;
   wipe = true;
 }
 
@@ -443,6 +453,7 @@ function updateInspector() {
 
 function select(c) {
   selected = c; family = new Set(); familyFor = null;
+  document.body.classList.toggle('inspecting', !!c);
   $('i-lineage').textContent = 'Show family';
   if (c) { drawAvatar(c); following = following && !!c; }
   else following = false;
@@ -478,22 +489,49 @@ const pointer = { x: 0, y: 0, inside: false, down: false, panning: false, moved:
 
 function setTool(t) {
   tool = t;
-  document.querySelectorAll('.tools button').forEach((b) => b.classList.toggle('on', b.dataset.tool === t));
+  document.querySelectorAll('.actions .tool').forEach((b) => b.classList.toggle('on', b.dataset.tool === t));
   document.body.className = document.body.className.replace(/tool-\w+/g, '').trim() + ` tool-${t}`;
 }
-document.querySelectorAll('.tools button').forEach((b) => b.addEventListener('click', () => setTool(b.dataset.tool)));
+document.querySelectorAll('.actions .tool').forEach((b) => b.addEventListener('click', () => setTool(b.dataset.tool)));
+
+// Pointer input. Mouse: tools act on press. Touch: tools act on a tap (so starting a pinch
+// never drops a meteor), one finger pans or paints food, two fingers pinch-zoom and pan.
+const touches = new Map();
+let pinch = null;
+
+function useTool(e) {
+  const [wx, wy] = toWorld(e.clientX, e.clientY);
+  if (tool === 'feed') world.feed(wx, wy);
+  else if (tool === 'predator') select(world.dropPredator(wx, wy));
+  else if (tool === 'meteor') world.meteor(wx, wy);
+}
+
+function pinchState() {
+  const [a, b] = [...touches.values()];
+  return { d: Math.hypot(a.x - b.x, a.y - b.y) || 1, mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2 };
+}
 
 cv.addEventListener('pointerdown', (e) => {
+  try { cv.setPointerCapture(e.pointerId); } catch { /* pointer already gone */ }
+  if (e.pointerType === 'touch') {
+    touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (touches.size === 2) { pinch = pinchState(); pointer.moved = 1e9; following = false; return; }
+  }
   pointer.down = true; pointer.moved = 0; pointer.lx = e.clientX; pointer.ly = e.clientY;
-  pointer.panning = e.button !== 0 || tool === 'inspect';
-  cv.setPointerCapture(e.pointerId);
-  const [wx, wy] = toWorld(e.clientX, e.clientY);
-  if (e.button === 0 && tool === 'feed') world.feed(wx, wy);
-  if (e.button === 0 && tool === 'predator') { select(world.dropPredator(wx, wy)); }
-  if (e.button === 0 && tool === 'meteor') world.meteor(wx, wy);
+  pointer.panning = e.button !== 0 || tool === 'inspect' || (e.pointerType === 'touch' && tool !== 'feed');
+  if (e.pointerType !== 'touch' && e.button === 0 && tool !== 'inspect') useTool(e);
 });
 cv.addEventListener('pointermove', (e) => {
-  pointer.x = e.clientX; pointer.y = e.clientY; pointer.inside = true;
+  pointer.x = e.clientX; pointer.y = e.clientY; pointer.inside = e.pointerType !== 'touch';
+  if (touches.has(e.pointerId)) touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (pinch && touches.size === 2) {
+    const p = pinchState();
+    const [wx, wy] = toWorldRaw(pinch.mx, pinch.my);
+    cam.z = clampN(cam.z * (p.d / pinch.d), 0.2, 8);
+    cam.x = wx - p.mx / cam.z; cam.y = wy - p.my / cam.z;
+    pinch = p;
+    return;
+  }
   if (!pointer.down) return;
   const dx = e.clientX - pointer.lx, dy = e.clientY - pointer.ly;
   pointer.moved += Math.abs(dx) + Math.abs(dy);
@@ -505,14 +543,23 @@ cv.addEventListener('pointermove', (e) => {
     const [wx, wy] = toWorld(e.clientX, e.clientY); world.feed(wx, wy, 50, 10);
   }
 });
-cv.addEventListener('pointerup', (e) => {
+function endPointer(e) {
   document.body.classList.remove('panning');
-  if (tool === 'inspect' && pointer.moved < 5 && e.button === 0) {
-    const [wx, wy] = toWorld(e.clientX, e.clientY);
-    select(world.creatureAt(wx, wy, 14 / cam.z));
+  const touch = e.pointerType === 'touch';
+  if (touch) {
+    touches.delete(e.pointerId);
+    if (touches.size < 2) pinch = null;
+    if (touches.size) return;
   }
+  const tap = pointer.down && pointer.moved < (touch ? 10 : 5) && (touch || e.button === 0);
+  if (tap && tool === 'inspect') {
+    const [wx, wy] = toWorld(e.clientX, e.clientY);
+    select(world.creatureAt(wx, wy, (touch ? 26 : 14) / cam.z));
+  } else if (tap && touch && tool !== 'feed') useTool(e);
   pointer.down = false;
-});
+}
+cv.addEventListener('pointerup', endPointer);
+cv.addEventListener('pointercancel', endPointer);
 cv.addEventListener('pointerleave', () => { pointer.inside = false; });
 cv.addEventListener('contextmenu', (e) => e.preventDefault());
 cv.addEventListener('wheel', (e) => {
@@ -524,7 +571,13 @@ cv.addEventListener('wheel', (e) => {
 
 let paused = false, speedIdx = 1, perfOn = params.has('perf');
 function togglePerf() { perfOn = !perfOn; $('perf').hidden = !perfOn; }
-function togglePause() { paused = !paused; $('b-pause').innerHTML = `${paused ? 'Resume' : 'Pause'} <kbd>space</kbd>`; }
+function togglePause() {
+  paused = !paused;
+  const b = $('b-pause');
+  b.querySelector('.ic').textContent = paused ? '▶' : '❚❚';
+  b.querySelector('.lb').textContent = paused ? 'Resume' : 'Pause';
+  b.setAttribute('aria-label', paused ? 'Resume' : 'Pause');
+}
 function newWorld() {
   world.reset((Math.random() * 1e9) | 0);
   select(null); effects.length = 0; lastEventCount = 0; $('ticker').innerHTML = ''; wipe = true;
@@ -576,6 +629,7 @@ addEventListener('keydown', (e) => {
 });
 addEventListener('resize', resize);
 setTimeout(() => $('hint').classList.add('gone'), 9000);
+addEventListener('pointerdown', () => $('hint').classList.add('gone'), { once: true });
 
 // ------------------------------------------------------------------ loop
 
@@ -619,7 +673,7 @@ function directCamera(shot) {
   const { width: W, height: H } = world.cfg;
   const fit = Math.min(vw / W, vh / H);
   const c = shot.subject;
-  const tz = shot.zoom === 'close' ? Math.min(fit * 3.4, 4) : fit * 0.98;
+  const tz = shot.zoom === 'close' ? Math.min(Math.max(fit * 3.4, 1.6), 4) : narrow.matches ? Math.max(vw / W, vh / H) : fit * 0.98;
   let [cx, cy] = camCentre();
   const tx = nearest(c ? c.x : W / 2, cx, W), ty = nearest(c ? c.y : H / 2, cy, H);
   cam.z += (tz - cam.z) * 0.025;
@@ -630,8 +684,17 @@ function directCamera(shot) {
 async function toggleSound() {
   const on = await sound.toggle();
   $('b-sound').setAttribute('aria-pressed', on);
-  $('b-sound').innerHTML = `${on ? '♪ Sound on' : '♪ Sound'} <kbd>M</kbd>`;
+  $('b-sound').querySelector('.lb').textContent = on ? 'Sound on' : 'Sound';
 }
+
+function toggleSheet(open = !document.body.classList.contains('sheet-open')) {
+  document.body.classList.toggle('sheet-open', open);
+  $('sheet-handle').setAttribute('aria-expanded', open);
+  requestAnimationFrame(() => { for (const ch of charts) ch.resize(); sizeBrain(); });
+}
+$('sheet-handle').addEventListener('click', () => toggleSheet());
+document.querySelector('#panel .stats').addEventListener('click', () => { if (narrow.matches) toggleSheet(); });
+narrow.addEventListener('change', () => { toggleSheet(false); resize(); });
 
 $('b-doc').addEventListener('click', toggleDoc);
 $('b-sound').addEventListener('click', toggleSound);
@@ -665,7 +728,7 @@ function loop() {
   }
   if (following && selected) {
     const [cx, cy] = camCentre();
-    const tx = nearest(selected.x, cx, world.cfg.width) - (vw - 350) / 2 / cam.z;
+    const tx = nearest(selected.x, cx, world.cfg.width) - (vw - panelW()) / 2 / cam.z;
     const ty = nearest(selected.y, cy, world.cfg.height) - vh / 2 / cam.z;
     cam.x += (tx - cam.x) * 0.12; cam.y += (ty - cam.y) * 0.12;
   }

@@ -2,7 +2,8 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#05080f">
 <title>Primordia — an evolving ecosystem</title>
 <link rel="stylesheet" href="style.css">
 </head>
@@ -16,6 +17,7 @@
 </header>
 
 <aside id="panel" class="glass">
+  <button id="sheet-handle" aria-expanded="false" aria-label="Show charts and settings"><span></span></button>
   <section class="stats">
     <div class="stat"><span class="v" id="s-pop">0</span><span class="k">alive</span></div>
     <div class="stat"><span class="v" id="s-gen">0</span><span class="k">generations</span></div>
@@ -59,21 +61,17 @@
       <small>re-seed when life nearly vanishes</small></label>
   </section>
 
-  <section>
+  <section class="hand">
     <h2>Your hand <small>keys 1–4</small></h2>
-    <div class="tools" role="radiogroup">
-      <button data-tool="inspect" class="on" title="Click a creature to see its mind (1)"><span>◎</span>Inspect</button>
-      <button data-tool="feed" title="Paint food (2)"><span>✿</span>Feed</button>
-      <button data-tool="predator" title="Release a predator (3)"><span>▲</span>Predator</button>
-      <button data-tool="meteor" title="Strike with a meteor (4)"><span>✸</span>Meteor</button>
-    </div>
-    <div class="row">
-      <button id="b-doc" class="ghost" aria-pressed="false">▶ Documentary <kbd>D</kbd></button>
-      <button id="b-sound" class="ghost" aria-pressed="false">♪ Sound <kbd>M</kbd></button>
-    </div>
-    <div class="row">
-      <button id="b-pause" class="ghost">Pause <kbd>space</kbd></button>
-      <button id="b-new" class="ghost">New world <kbd>N</kbd></button>
+    <div class="actions">
+      <button class="tool on" data-tool="inspect" aria-label="Inspect" title="Click a creature to see its mind (1)"><span class="ic">◎</span><span class="lb">Inspect</span></button>
+      <button class="tool" data-tool="feed" aria-label="Feed" title="Paint food (2)"><span class="ic">✿</span><span class="lb">Feed</span></button>
+      <button class="tool" data-tool="predator" aria-label="Release a predator" title="Release a predator (3)"><span class="ic">▲</span><span class="lb">Predator</span></button>
+      <button class="tool" data-tool="meteor" aria-label="Meteor" title="Strike with a meteor (4)"><span class="ic">✸</span><span class="lb">Meteor</span></button>
+      <button id="b-doc" class="wide" aria-pressed="false" aria-label="Documentary"><span class="ic">▶</span><span class="lb">Documentary</span> <kbd>D</kbd></button>
+      <button id="b-sound" class="wide" aria-pressed="false" aria-label="Sound"><span class="ic">♪</span><span class="lb">Sound</span> <kbd>M</kbd></button>
+      <button id="b-pause" class="wide" aria-label="Pause"><span class="ic">❚❚</span><span class="lb">Pause</span> <kbd>space</kbd></button>
+      <button id="b-new" class="wide" aria-label="New world"><span class="ic">↻</span><span class="lb">New world</span> <kbd>N</kbd></button>
     </div>
   </section>
 </aside>
@@ -100,9 +98,9 @@
 <div id="perf" hidden></div>
 <div id="spot" aria-hidden="true"></div>
 <div id="bars" aria-hidden="true"><div></div><div></div></div>
-<div id="caption" aria-live="polite"><div class="ct"></div><div class="cl"></div><div class="cx">press D or Esc to leave</div></div>
+<div id="caption" aria-live="polite"><div class="ct"></div><div class="cl"></div><div class="cx"><span class="mouse">press D or Esc to leave</span><span class="touch">tap to leave</span></div></div>
 <div id="ticker"></div>
-<div id="hint">Click a creature to read its mind · scroll to zoom · drag to pan · <kbd>H</kbd> hides the interface</div>
+<div id="hint"><span class="mouse">Click a creature to read its mind · scroll to zoom · drag to pan · <kbd>H</kbd> hides the interface</span><span class="touch">Tap a creature to read its mind · pinch to zoom · drag to pan</span></div>
 
 <script type="module" src="app.js"></script>
 </body>

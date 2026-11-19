@@ -25,6 +25,7 @@ Add `?seed=7` for a reproducible world, or `?seed=7&warm=6000` to start from an 
 - **1–4** switch tools: inspect, feed, release a predator, drop a meteor.
 - **D** starts documentary mode: the camera follows the drama and narrates it. **M** turns on generative sound.
 - **Scroll** to zoom, **drag** to pan, **Space** to pause, **N** for a new world, **H** to hide the interface, **P** for a performance overlay.
+- On a phone: tap a creature, drag to pan, pinch to zoom, and tap the bottom sheet for charts and settings.
 - Sliders control speed, food and mutation. **Spontaneous generation** (off by default) re-seeds the world when life nearly vanishes.
 
 ## Develop
