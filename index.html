@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Primordia — an evolving ecosystem</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<canvas id="world"></canvas>
+
+<header class="brand glass">
+  <h1>Primordia</h1>
+  <p class="sub">an evolving ecosystem of tiny neural minds</p>
+  <p class="meta"><span id="clock">day 0</span> · seed <span id="seed"></span></p>
+</header>
+
+<aside id="panel" class="glass">
+  <section class="stats">
+    <div class="stat"><span class="v" id="s-pop">0</span><span class="k">alive</span></div>
+    <div class="stat"><span class="v" id="s-gen">0</span><span class="k">generations</span></div>
+    <div class="stat"><span class="v" id="s-clades">0</span><span class="k">clades</span></div>
+    <div class="stat"><span class="v" id="s-kills">0</span><span class="k">hunts</span></div>
+  </section>
+
+  <section>
+    <h2>Population</h2>
+    <div class="legend">
+      <span><i class="sw herb"></i>Herbivores <b id="l-herb">0</b></span>
+      <span><i class="sw pred"></i>Predators <b id="l-pred">0</b></span>
+    </div>
+    <div class="chart"><canvas id="c-pop"></canvas><div class="tip" id="tip-pop"></div></div>
+  </section>
+
+  <section>
+    <h2>Arms race <small>how bodies evolve</small></h2>
+    <div class="twin">
+      <div>
+        <h3>Body size</h3>
+        <div class="chart small"><canvas id="c-size"></canvas><div class="tip" id="tip-size"></div></div>
+      </div>
+      <div>
+        <h3>Cruising speed</h3>
+        <div class="chart small"><canvas id="c-speed"></canvas><div class="tip" id="tip-speed"></div></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="controls">
+    <h2>World</h2>
+    <label>Speed <output id="o-speed">×2</output>
+      <input type="range" id="r-speed" min="0" max="4" step="1" value="1"></label>
+    <label>Food abundance <output id="o-food">5</output>
+      <input type="range" id="r-food" min="0" max="12" step="1" value="5"></label>
+    <label>Mutation <output id="o-mut">1.0×</output>
+      <input type="range" id="r-mut" min="0" max="3" step="0.1" value="1"></label>
+    <label class="switch" title="When life nearly vanishes, seed fresh random creatures">
+      <input type="checkbox" id="t-respawn"><span class="knob"></span>Spontaneous generation
+      <small>re-seed when life nearly vanishes</small></label>
+  </section>
+
+  <section>
+    <h2>Your hand <small>keys 1–4</small></h2>
+    <div class="tools" role="radiogroup">
+      <button data-tool="inspect" class="on" title="Click a creature to see its mind (1)"><span>◎</span>Inspect</button>
+      <button data-tool="feed" title="Paint food (2)"><span>✿</span>Feed</button>
+      <button data-tool="predator" title="Release a predator (3)"><span>▲</span>Predator</button>
+      <button data-tool="meteor" title="Strike with a meteor (4)"><span>✸</span>Meteor</button>
+    </div>
+    <div class="row">
+      <button id="b-pause" class="ghost">Pause <kbd>space</kbd></button>
+      <button id="b-new" class="ghost">New world <kbd>N</kbd></button>
+    </div>
+  </section>
+</aside>
+
+<div id="inspector" class="glass hidden">
+  <div class="ihead">
+    <div class="avatar"><canvas id="i-avatar" width="56" height="56"></canvas></div>
+    <div>
+      <div class="iname" id="i-name">—</div>
+      <div class="itag" id="i-tag">—</div>
+    </div>
+    <button id="i-close" class="x" title="Close (Esc)">×</button>
+  </div>
+  <div class="bar"><div id="i-energy"></div></div>
+  <div class="genes" id="i-genes"></div>
+  <h3 class="mind">Its mind, live <small>blue excites · orange inhibits</small></h3>
+  <canvas id="i-brain"></canvas>
+  <div class="row">
+    <button id="i-follow" class="ghost">Follow <kbd>F</kbd></button>
+    <button id="i-lineage" class="ghost">Show family</button>
+  </div>
+</div>
+
+<div id="ticker"></div>
+<div id="hint">Click a creature to read its mind · scroll to zoom · drag to pan · <kbd>H</kbd> hides the interface</div>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>
